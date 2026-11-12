@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "timescute",
+  "version": "${version}",
+  "name": "TimeScute",
+  "description": "Editor de câmera cinematográfica com timeline e keyframes fáceis de usar.",
+  "authors": ["Você"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": { "client": ["dev.timescute.client.TimeScuteClient"] },
+  "mixins": ["timescute.mixins.json"],
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "minecraft": "~1.20.1",
+    "java": ">=17",
+    "fabric-api": "*"
+  }
+}
