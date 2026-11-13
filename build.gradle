@@ -30,5 +30,6 @@ tasks.register('coreTests', JavaExec) {
     dependsOn 'testClasses'
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'dev.timescute.core.AllTests'
-    jvmArgs '-ea'
+    jvmArgs '-ea', '-Dfile.encoding=UTF-8', '-Dsun.jnu.encoding=UTF-8'
+    environment 'LC_ALL', 'C.UTF-8'
 }

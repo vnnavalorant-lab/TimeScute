@@ -2,5 +2,8 @@
   "key.timescute.open": "Abrir editor de timeline",
   "key.timescute.capture": "Capturar keyframe na posição atual",
   "key.timescute.play": "Reproduzir / pausar trajeto",
+  "key.timescute.record": "Finalizar gravação do replay",
+  "key.timescute.marker": "Adicionar marcador ao replay",
+  "key.timescute.replays": "Abrir lista de replays",
   "category.timescute": "TimeScute"
 }

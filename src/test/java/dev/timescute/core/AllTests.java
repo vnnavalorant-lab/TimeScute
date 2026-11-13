@@ -6,5 +6,7 @@ public final class AllTests {
         CoreTests.main(args);
         System.out.println("\n== Fase 2 ==");
         Phase2Tests.main(args);
+        System.out.println("\n== Fase 3 ==");
+        Phase3Tests.main(args);
     }
 }
