@@ -8,5 +8,7 @@ public final class AllTests {
         Phase2Tests.main(args);
         System.out.println("\n== Fase 3 ==");
         Phase3Tests.main(args);
+        System.out.println("\n== Fase 4 ==");
+        Phase4Tests.main(args);
     }
 }

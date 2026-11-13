@@ -23,6 +23,20 @@ public final class ReplayMeta {
         return server.isEmpty() ? "?" : server;
     }
 
+    /** Primeiro marcador depois de {@code timeMs}. */
+    public OptionalLong nextMarkerAfter(long timeMs) {
+        long best = Long.MAX_VALUE;
+        for (Marker m : markerList) if (m.timeMs() > timeMs + 1 && m.timeMs() < best) best = m.timeMs();
+        return best == Long.MAX_VALUE ? OptionalLong.empty() : OptionalLong.of(best);
+    }
+
+    /** Último marcador antes de {@code timeMs - 1s} (a folga evita "voltar" para o marcador em que acabamos de chegar). */
+    public OptionalLong previousMarkerBefore(long timeMs) {
+        long best = -1;
+        for (Marker m : markerList) if (m.timeMs() < timeMs - 1000 && m.timeMs() > best) best = m.timeMs();
+        return best < 0 ? OptionalLong.empty() : OptionalLong.of(best);
+    }
+
     public String toJson() {
         StringBuilder b = new StringBuilder("{\n");
         str(b, "format", FORMAT); b.append(",\n");

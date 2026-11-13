@@ -3,6 +3,6 @@
   "minVersion": "0.8",
   "package": "dev.timescute.mixin",
   "compatibilityLevel": "JAVA_17",
-  "client": ["CameraMixin", "ClientConnectionMixin", "GameRendererMixin"],
+  "client": ["AbstractClientPlayerEntityMixin", "CameraMixin", "ClientConnectionMixin", "GameRendererMixin"],
   "injectors": { "defaultRequire": 1 }
 }

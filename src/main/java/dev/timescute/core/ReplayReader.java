@@ -171,6 +171,23 @@ public final class ReplayReader implements Closeable {
 
     public void forEach(RecordConsumer c) throws IOException { forEachFrom(0, c); }
 
+    /** Registros de um único bloco (pelo índice em {@link #chunks()}), para leitura em fluxo. */
+    public List<ReplayRecord> readChunkRecords(int index) throws IOException {
+        if (index < 0 || index >= chunks.size()) throw new IndexOutOfBoundsException("Bloco " + index);
+        RawChunk rc = readChunk(chunks.get(index).offset(), dataLimit());
+        if (rc.type != ReplayFormat.CHUNK_DATA) throw new IOException("Índice do replay aponta para um trecho que não é de dados.");
+        List<ReplayRecord> out = new ArrayList<>(chunks.get(index).records());
+        parseData(rc.payload, 0, out::add);
+        return out;
+    }
+
+    /** Primeiro registro do tipo pedido (olha só os primeiros blocos até achar). */
+    public Optional<ReplayRecord> findFirst(int kind) throws IOException {
+        for (int i = 0; i < chunks.size(); i++)
+            for (ReplayRecord r : readChunkRecords(i)) if (r.kind() == kind) return Optional.of(r);
+        return Optional.empty();
+    }
+
     /** Entrega os registros com tempo >= fromMs, pulando os blocos anteriores usando o índice. */
     public void forEachFrom(long fromMs, RecordConsumer c) throws IOException {
         for (ReplayChunk ch : chunks) {

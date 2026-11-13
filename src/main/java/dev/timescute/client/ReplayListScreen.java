@@ -95,7 +95,7 @@ public final class ReplayListScreen extends Screen {
         int bw = Math.max(70, Math.min(112, (width - 2 * MARGIN - 4 * 4) / 5));
         int total = bw * 5 + 4 * 4, x = (width - total) / 2, y1 = height - BAR_H + 2, y2 = height - BAR_H + 26;
         bPlay = addDrawableChild(ButtonWidget.builder(Text.literal("Reproduzir"), b -> onPlay())
-                .dimensions(x, y1, bw, 20).tooltip(Tooltip.of(Text.literal("A reprodução chega na fase 4"))).build());
+                .dimensions(x, y1, bw, 20).tooltip(Tooltip.of(Text.literal("Abre o replay (também: duplo clique ou Enter)"))).build());
         bRename = addDrawableChild(ButtonWidget.builder(Text.literal("Renomear"), b -> onRename()).dimensions(x + (bw + 4), y1, bw, 20).build());
         bDelete = addDrawableChild(ButtonWidget.builder(Text.literal("Excluir"), b -> onDelete()).dimensions(x + 2 * (bw + 4), y1, bw, 20).build());
         bRepair = addDrawableChild(ButtonWidget.builder(Text.literal("Reparar"), b -> onRepair())
@@ -188,7 +188,17 @@ public final class ReplayListScreen extends Screen {
     // ================= ações =================
 
     private void onPlay() {
-        say("A reprodução de replays chega na fase 4.", false);
+        ReplayLibrary.Entry e = selectedEntry();
+        if (e == null) return;
+        if (!e.readable()) { say("Este arquivo não pode ser aberto: " + e.error(), true); return; }
+        if (client.world != null) { say("Saia do mundo atual antes de abrir um replay.", true); return; }
+        String problem = ReplaySession.check(e.meta());
+        if (problem != null) { say(problem, true); return; }
+        try {
+            ReplaySession.get().start(e.file());
+        } catch (IOException ex) {
+            say(ex.getMessage(), true);
+        }
     }
 
     private void onRename() {
@@ -345,7 +355,7 @@ public final class ReplayListScreen extends Screen {
     private void updateButtons() {
         ReplayLibrary.Entry e = selectedEntry();
         bSort.setMessage(Text.literal("Ordem: " + sort.label));
-        bPlay.active = false; // fase 4
+        bPlay.active = e != null && e.readable();
         bRename.active = e != null;
         bDelete.active = e != null;
         bRepair.active = e != null && e.readable() && !e.complete();

@@ -58,10 +58,12 @@ public final class CameraDirector {
     public void advance() {
         if (!playing) return;
         long now = System.nanoTime();
+        long old = playheadMs;
         playheadMs += (now - lastNanos) / 1_000_000L;
         lastNanos = now;
         long end = timeline.path().lastTimeMs();
         if (playheadMs >= end) { playheadMs = end; playing = false; }
+        ReplaySession.get().onPathAdvance(old, playheadMs, timeline.speed());
     }
 
     /** Câmera forçada neste frame, se houver preview ou reprodução. */

@@ -35,7 +35,7 @@ public final class RecordingManager {
     private static final RecordingManager INSTANCE = new RecordingManager();
     public static RecordingManager get() { return INSTANCE; }
 
-    private static final String MOD_VERSION = "0.3.0";
+    private static final String MOD_VERSION = "0.4.0";
     private static final int RED = 0xFFFF3B3B;
 
     private final ExecutorService closer = Executors.newSingleThreadExecutor(r -> {

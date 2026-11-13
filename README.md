@@ -5,7 +5,7 @@ Reescrita do zero, focada em uma timeline simples. Código 100% próprio (não u
 ## Como compilar
 Precisa de JDK 17 e Gradle.
 1. Na pasta do projeto: `gradle wrapper --gradle-version 8.8` (gera o `gradlew`).
-2. `./gradlew build` → o mod fica em `build/libs/timescute-0.3.0.jar`.
+2. `./gradlew build` → o mod fica em `build/libs/timescute-0.4.0.jar`.
 3. Coloque o jar em `mods/` junto com o **Fabric API** (1.20.1).
 4. Testes do núcleo (sem Minecraft): `./gradlew coreTests`.
 
@@ -14,7 +14,7 @@ Se algo não compilar (nomes de API do Yarn), me mande a mensagem de erro que eu
 ### Compilar pelo GitHub (sem instalar nada)
 O projeto já tem `.github/workflows/build.yml`. Suba a pasta para um repositório no GitHub e a cada push o Actions compila, roda os testes do núcleo e guarda o jar:
 1. Aba **Actions** → clique na execução → **Artifacts** → baixe `timescute-jar`.
-2. Para gerar uma release com o jar anexado, crie uma tag que comece com `v` (ex.: `git tag v0.3.0 && git push --tags`).
+2. Para gerar uma release com o jar anexado, crie uma tag que comece com `v` (ex.: `git tag v0.4.0 && git push --tags`).
 3. Também dá para rodar manualmente: Actions → build → **Run workflow**.
 
 ## Como usar
@@ -71,6 +71,27 @@ Todas as teclas podem ser mudadas em Controles → TimeScute.
 
 > **Privacidade**: um replay contém tudo que o servidor enviou (chat, posições e nomes de outros jogadores). Não compartilhe replays de servidores sem permissão.
 
+### Novidades da fase 4: reprodução de replays
+Na **lista de replays** (tecla **R**, ou o botão *Replays* do menu principal), selecione um replay e clique em **Reproduzir** (ou dê duplo clique / Enter). Precisa estar fora de qualquer mundo.
+
+O jogo carrega o replay como se fosse um servidor. **Você vira uma câmera livre** (modo espectador: atravessa paredes, voa com WASD, Espaço/Shift sobem e descem, a roda do mouse muda a velocidade de voo), e o jogador que foi gravado reaparece no mundo, movido pelas amostras gravadas.
+
+| Tecla (durante o replay) | Ação |
+|---|---|
+| **P** | Pausar / continuar |
+| **← / →** | Voltar / avançar 5 s (com Shift: 30 s) |
+| **[ / ]** | Diminuir / aumentar a velocidade (0.1x a 8x) |
+| **R** | Abre o painel de controle (barra de busca com marcadores, botões de velocidade, pular de marcador em marcador, sair) |
+| **K / J / H** | Editor de timeline, capturar keyframe, reproduzir o trajeto de câmera: tudo funciona dentro do replay |
+| **F1** | Esconde a interface (HUD limpa) |
+| **Esc** | Menu de pausa, onde *Desconectar* sai do replay |
+
+Uma barra de progresso fina com os marcadores e o tempo do replay aparecem na tela (somem com F1).
+
+**Trajeto de câmera + velocidade**: ao reproduzir o trajeto (H), o tempo do replay passa a seguir a **trilha de velocidade** da timeline, então a câmera lenta que você desenhou acontece de verdade.
+
+**Buscar no tempo**: avançar é rápido (os pacotes são aplicados em lote, sem sons e partículas). **Voltar recomeça o replay do início e avança até o ponto**, porque o estado do mundo só é reconstruído para a frente; por isso a busca é feita ao *soltar* a barra, e voltar muito costuma demorar alguns segundos.
+
 ## O que foi simplificado em relação ao Replay Mod
 - **Um tipo só de keyframe**: posição + rotação + FOV juntos. Sem keyframes de "tempo" e "posição" separados.
 - A cor da faixa entre keyframes mostra a interpolação, então dá para ler o trajeto de relance.
@@ -80,20 +101,22 @@ Todas as teclas podem ser mudadas em Controles → TimeScute.
 Cabeçalho + blocos (`META` json, `DATA` comprimido, `INDEX`, `THUMB` png), cada bloco com CRC32, e um rodapé com os offsets. Os registros são pacotes (formato do fio: id + corpo), amostras do jogador e marcadores, cada um com tempo em ms. A especificação completa está nos comentários de `core/ReplayFormat.java`.
 
 ## Estrutura
-- `core/` — Java puro e testado: `Timeline`, `CameraPath`, `SpeedTrack`, `TimelineView`; e para replays `ReplayWriter`, `ReplayReader`, `ReplayRepair`, `ReplayLibrary`, `Settings`.
-- `client/` — `TimelineScreen`, `ReplayListScreen` (UIs), `CameraDirector`, `RecordingManager` (gravação), `TimeScuteClient` (teclas, HUD, menus).
-- `mixin/` — sobrescreve câmera e FOV no preview; `ClientConnectionMixin` captura os pacotes do servidor.
+- `core/` — Java puro e testado: `Timeline`, `CameraPath`, `SpeedTrack`, `TimelineView`; e para replays `ReplayWriter`, `ReplayReader`, `ReplayCursor`, `ReplayClock`, `ReplayFeeder`, `ReplayRepair`, `ReplayLibrary`, `Settings`.
+- `client/` — `TimelineScreen`, `ReplayListScreen`, `ReplayControlScreen` (UIs), `CameraDirector`, `RecordingManager` (gravação), `ReplaySession` (reprodução), `TimeScuteClient` (teclas, HUD, menus).
+- `mixin/` — sobrescreve câmera e FOV no preview; `ClientConnectionMixin` captura os pacotes do servidor; `AbstractClientPlayerEntityMixin` faz a câmera do replay voar.
 
 ## Limitações conhecidas
 - **A gravação só começa ao entrar** em um mundo/servidor. Não dá para começar no meio da sessão, porque o replay precisa dos pacotes iniciais (mundo, chunks). Para gravar, deixe a gravação automática ligada. F8 só finaliza.
-- **Ainda não dá para reproduzir** replays: o botão *Reproduzir* fica desativado até a fase 4.
-- Ainda não grava nem reproduz replays: a câmera capturada é a do próprio jogador, e a trilha de velocidade ainda não afeta nada visível.
+- **Só abre replays da mesma versão do Minecraft** em que foram gravados (a lista mostra a versão de cada um).
+- Os efeitos feitos pelo próprio jogo a cada tick (partículas, animações) **não acompanham** a velocidade do replay; só os pacotes gravados acompanham.
+- O chat gravado reaparece durante o replay.
+- Ainda não existe renderização para vídeo (fase 5).
 - Roll da câmera existe no modelo mas ainda não é aplicado (o Minecraft não tem roll nativo).
 - As guias 3D usam o evento `WorldRenderEvents.LAST`; se aparecerem com atraso ou sumirem com shaders, me avise.
 
 ## Roteiro
 1. **Fase 1** ✔ timeline + keyframes + preview.
 2. **Fase 2** ✔ salvar/carregar trajetos (JSON); linha do trajeto e câmeras no mundo; trilha de velocidade.
-3. **Fase 3 (esta)** ✔ gravação própria (pacotes do servidor + formato `.tsr`) e lista de replays com miniatura.
-4. **Fase 4**: reprodução (mundo simulado, câmera livre, controle de velocidade, HUD limpa).
+3. **Fase 3** ✔ gravação própria (pacotes do servidor + formato `.tsr`) e lista de replays com miniatura.
+4. **Fase 4 (esta)** ✔ reprodução (mundo simulado, câmera livre, controle de velocidade e busca, HUD limpa).
 5. **Fase 5**: renderização para vídeo (captura de frames + FFmpeg), com painel de configurações simples e presets.

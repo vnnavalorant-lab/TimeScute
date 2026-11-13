@@ -11,6 +11,7 @@ import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.GameMenuScreen;
+import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.TitleScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.option.KeyBinding;
@@ -27,17 +28,27 @@ public final class TimeScuteClient implements ClientModInitializer {
         KeyBinding record = key("key.timescute.record", GLFW.GLFW_KEY_F8);
         KeyBinding marker = key("key.timescute.marker", GLFW.GLFW_KEY_M);
         KeyBinding replays = key("key.timescute.replays", GLFW.GLFW_KEY_R);
+        KeyBinding replayPause = key("key.timescute.replay_pause", GLFW.GLFW_KEY_P);
+        KeyBinding replayBack = key("key.timescute.replay_back", GLFW.GLFW_KEY_LEFT);
+        KeyBinding replayFwd = key("key.timescute.replay_forward", GLFW.GLFW_KEY_RIGHT);
+        KeyBinding speedDown = key("key.timescute.speed_down", GLFW.GLFW_KEY_LEFT_BRACKET);
+        KeyBinding speedUp = key("key.timescute.speed_up", GLFW.GLFW_KEY_RIGHT_BRACKET);
 
         CameraDirector dir = CameraDirector.get();
         RecordingManager rec = RecordingManager.get();
+        ReplaySession replay = ReplaySession.get();
 
         rec.init();
         dir.loadAutosave();
         PathRenderer.register();
 
-        HudRenderCallback.EVENT.register((ctx, tickDelta) -> rec.renderHud(ctx, MinecraftClient.getInstance()));
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, mc) -> rec.stop(null));
-        ClientLifecycleEvents.CLIENT_STOPPING.register(mc -> { dir.autosave(); rec.shutdown(); });
+        HudRenderCallback.EVENT.register((ctx, tickDelta) -> {
+            rec.renderHud(ctx, MinecraftClient.getInstance());
+            replay.renderHud(ctx, MinecraftClient.getInstance());
+        });
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, mc) -> { rec.stop(null); replay.onDisconnect(); });
+        ClientLifecycleEvents.CLIENT_STOPPING.register(mc -> { dir.autosave(); rec.shutdown(); replay.stop(); });
+        ClientTickEvents.START_CLIENT_TICK.register(replay::tick);
 
         // atalho para a lista de replays no menu principal e no menu de pausa
         ScreenEvents.AFTER_INIT.register((mc, screen, w, h) -> {
@@ -71,7 +82,18 @@ public final class TimeScuteClient implements ClientModInitializer {
 
             while (record.wasPressed()) if (mc.currentScreen == null) rec.onToggleKey(mc);
             while (marker.wasPressed()) if (mc.currentScreen == null) rec.marker(mc);
-            while (replays.wasPressed()) if (mc.currentScreen == null) mc.setScreen(new ReplayListScreen(null));
+            while (replays.wasPressed()) {
+                if (mc.currentScreen != null) continue;
+                mc.setScreen(replay.isActive() ? new ReplayControlScreen() : new ReplayListScreen(null));
+            }
+
+            if (replay.isActive() && mc.currentScreen == null) {
+                while (replayPause.wasPressed()) replay.togglePause();
+                while (replayBack.wasPressed()) replay.jump(Screen.hasShiftDown() ? -30_000 : -5_000);
+                while (replayFwd.wasPressed()) replay.jump(Screen.hasShiftDown() ? 30_000 : 5_000);
+                while (speedDown.wasPressed()) replay.stepSpeed(-1);
+                while (speedUp.wasPressed()) replay.stepSpeed(1);
+            }
         });
     }
 
