@@ -20,8 +20,18 @@ public final class ActorPose {
     public final Reaction look;
     public final double lookWeight;
 
+    /** Camadas por NOME DE OSSO do arquivo (para modelos do Blockbench, cujos ossos não são os do jogador). */
+    public final Map<String, List<PartLayer>> boneLayers;
+
     public ActorPose(boolean visible, ActorFrame frame, String item, Map<Part, List<PartLayer>> layers,
                      int swingCount, boolean swingOffHand, Reaction look, double lookWeight) {
+        this(visible, frame, item, layers, Map.of(), swingCount, swingOffHand, look, lookWeight);
+    }
+
+    public ActorPose(boolean visible, ActorFrame frame, String item, Map<Part, List<PartLayer>> layers,
+                     Map<String, List<PartLayer>> boneLayers,
+                     int swingCount, boolean swingOffHand, Reaction look, double lookWeight) {
+        this.boneLayers = boneLayers;
         this.visible = visible;
         this.frame = frame;
         this.item = item;

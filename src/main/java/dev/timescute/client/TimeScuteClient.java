@@ -59,9 +59,9 @@ public final class TimeScuteClient implements ClientModInitializer {
 
             while (capture.wasPressed()) {
                 if (mc.currentScreen != null) continue;
-                var kf = dir.timeline.capture(dir.playheadMs(), dir.captureCurrent(mc));
+                var kf = dir.captureKeyframe(mc);
                 dir.selection.set(kf.id());
-                say(mc, "Keyframe em " + TimelineView.format(kf.timeMs()) + " (" + dir.timeline.path().size() + " no total)");
+                say(mc, (dir.cutMode() ? "Corte em " : "Keyframe em ") + TimelineView.format(kf.timeMs()) + " (" + dir.timeline.path().size() + " no total)");
                 dir.setPlayhead(kf.timeMs() + CameraDirector.CAPTURE_STEP_MS);
                 dir.autosave();
             }

@@ -62,6 +62,8 @@ public final class PathJson {
                     .append(", \"name\": ").append(Json.quote(a.name()))
                     .append(", \"skin\": ").append(Json.quote(a.skin()))
                     .append(", \"startMs\": ").append(a.startMs())
+                    .append(", \"model\": ").append(Json.quote(a.model()))
+                    .append(a.origin() == null ? "" : ", \"origin\": [" + r(a.origin().x(), 3) + "," + r(a.origin().y(), 3) + "," + r(a.origin().z(), 3) + "," + r(a.origin().yaw(), 2) + "]")
                     .append(", \"muted\": ").append(a.muted()).append(",\n      \"items\": [");
             int n = 0;
             for (String it : items.keySet()) b.append(n++ == 0 ? "" : ", ").append(Json.quote(it));
@@ -147,8 +149,13 @@ public final class PathJson {
                         (int) opt(r.get("count"), 1), opt(r.get("x"), 0), opt(r.get("y"), 0), opt(r.get("z"), 0),
                         r.get("entity") instanceof String es ? es : "", r.get("label") instanceof String ls ? ls : ""));
             }
+            Actor.Origin origin = null;
+            if (a.get("origin") instanceof List<?> ol && ol.size() == 4 && ol.get(0) instanceof Double ox && ol.get(1) instanceof Double oy
+                    && ol.get(2) instanceof Double oz && ol.get(3) instanceof Double oyaw && !ox.isNaN() && !oy.isNaN() && !oz.isNaN() && !oyaw.isNaN())
+                origin = new Actor.Origin(ox, oy, oz, oyaw.floatValue());
             out.add(new Actor(id, a.get("name") instanceof String n ? n : "Ator", a.get("skin") instanceof String sk ? sk : "",
-                    (long) opt(a.get("startMs"), 0), Performance.of(frames), reactions, Boolean.TRUE.equals(a.get("muted"))));
+                    (long) opt(a.get("startMs"), 0), Performance.of(frames), reactions, Boolean.TRUE.equals(a.get("muted")),
+                    a.get("model") instanceof String ms ? ms : "", origin));
         }
         return out;
     }

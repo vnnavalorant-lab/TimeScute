@@ -45,6 +45,26 @@ public final class Timeline {
         return after;
     }
 
+    /**
+     * Captura um CORTE: a câmera fica parada no keyframe anterior e salta para este no instante dele
+     * (os dois ficam com a interpolação "Parado"). Um único passo no desfazer.
+     */
+    public Keyframe captureCut(long timeMs, CameraState state) {
+        timeMs = Math.max(0, timeMs);
+        Keyframe before = path().nearTime(timeMs, MIN_GAP_MS, Set.of()).orElse(null);
+        Keyframe after = before != null
+                ? before.withState(state).withEasing(Easing.HOLD)
+                : new Keyframe(nextId++, timeMs, state, Easing.HOLD);
+        Keyframe prev = null;
+        for (Keyframe k : path().all()) {
+            if (k.timeMs() >= after.timeMs()) break;
+            if (k.id() != after.id()) prev = k;
+        }
+        Keyframe prevAfter = prev != null && prev.easing() != Easing.HOLD ? prev.withEasing(Easing.HOLD) : null;
+        run(new PutCut(before, after, prevAfter != null ? prev : null, prevAfter));
+        return after;
+    }
+
     public boolean canMove(Set<Long> ids, long deltaMs) {
         if (ids.isEmpty()) return false;
         for (long id : ids) {
@@ -122,6 +142,13 @@ public final class Timeline {
     }
 
     /** Troca o ator (mesmo id) pela versão nova: serve para renomear, mover, gravar, editar reações... Um passo de desfazer. */
+    /** Cria um ator que você dirige pela timeline (sem gravar): ele começa em {@code origin}. */
+    public Actor addScriptedActor(String name, Actor.Origin origin) {
+        Actor a = Actor.createScripted(nextId++, name, origin);
+        run(new ActorEdit(null, a, actors().size(), "Adicionar ator roteirizado"));
+        return a;
+    }
+
     public boolean updateActor(Actor after, String label) {
         Optional<Actor> before = actors().byId(after.id());
         if (before.isEmpty() || before.get().equals(after)) return false;
@@ -209,6 +236,15 @@ public final class Timeline {
         public void apply(Project p) { p.path.put(after); }
         public void revert(Project p) { if (before == null) p.path.removeAll(List.of(after.id())); else p.path.put(before); }
         public String label() { return before == null ? "Adicionar keyframe" : "Recapturar keyframe"; }
+    }
+
+    private record PutCut(Keyframe before, Keyframe after, Keyframe prevBefore, Keyframe prevAfter) implements Command {
+        public void apply(Project p) { p.path.put(after); if (prevAfter != null) p.path.put(prevAfter); }
+        public void revert(Project p) {
+            if (before == null) p.path.removeAll(List.of(after.id())); else p.path.put(before);
+            if (prevBefore != null) p.path.put(prevBefore);
+        }
+        public String label() { return before == null ? "Adicionar corte" : "Recapturar corte"; }
     }
 
     private record Remove(List<Keyframe> gone) implements Command {

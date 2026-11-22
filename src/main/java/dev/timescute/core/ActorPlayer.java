@@ -1,6 +1,7 @@
 package dev.timescute.core;
 
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -10,13 +11,21 @@ public final class ActorPlayer {
     private ActorPlayer() { }
 
     public static ActorPose evaluate(Actor a, long stageMs, AnimLibrary lib) {
-        if (a.muted() || !a.hasPerformance()) return ActorPose.HIDDEN;
+        if (a.muted()) return ActorPose.HIDDEN;
         long rel = stageMs - a.startMs();
-        if (rel < 0 || rel > a.performance().durationMs()) return ActorPose.HIDDEN;
-
-        ActorFrame f = a.performance().sampleAt(rel);
+        ActorFrame f;
+        if (a.hasPerformance()) {
+            if (rel < 0 || rel > a.performance().durationMs()) return ActorPose.HIDDEN;
+            f = a.performance().sampleAt(rel);
+        } else if (a.isScripted()) {
+            if (rel < 0) return ActorPose.HIDDEN; // roteirizado: fica na cena do começo até o fim
+            f = ScriptedMotion.frameAt(a, stageMs);
+        } else {
+            return ActorPose.HIDDEN;
+        }
         String item = f.item();
         Map<Part, List<PartLayer>> layers = new EnumMap<>(Part.class);
+        Map<String, List<PartLayer>> boneLayers = new LinkedHashMap<>();
         Reaction look = null;
         double lookW = 0;
         int swings = 0;
@@ -40,21 +49,23 @@ public final class ActorPlayer {
                     if (n > 0 && r.startMs() >= lastSwingStart) { lastSwingStart = r.startMs(); off = r.offHand(); }
                 }
                 case ANIMATION -> {
-                    if (active) addAnimation(r, stageMs, lib, layers);
+                    if (active) addAnimation(r, stageMs, lib, layers, boneLayers);
                 }
                 case LOOK_AT -> {
                     if (active) { look = r; lookW = LookMath.smoothWeight(progress(r, stageMs), 0.15); }
                 }
+                case WALK, TURN -> { } // já aplicados em ScriptedMotion (movem o ator)
             }
         }
-        return new ActorPose(true, f, item, layers, swings, off, look, lookW);
+        return new ActorPose(true, f, item, layers, boneLayers, swings, off, look, lookW);
     }
 
     /** Intensidade sobe e desce suave nas pontas do bloco (fração de cada ponta). */
     static final double FADE = 0.12;
 
     /** Amostra o clipe no instante e põe uma camada em cada parte afetada. */
-    private static void addAnimation(Reaction r, long stageMs, AnimLibrary lib, Map<Part, List<PartLayer>> layers) {
+    private static void addAnimation(Reaction r, long stageMs, AnimLibrary lib, Map<Part, List<PartLayer>> layers,
+                                     Map<String, List<PartLayer>> boneLayers) {
         AnimParams p = r.anim();
         Optional<AnimClip> oc = lib.clip(p.clip());
         if (oc.isEmpty()) return; // clipe ausente: não faz nada (a interface avisa)
@@ -68,6 +79,8 @@ public final class ActorPlayer {
         double w = p.weight() * LookMath.smoothWeight(progress(r, stageMs), FADE);
 
         for (Map.Entry<String, AnimClip.BoneValue> e : sample.entrySet()) {
+            // modelos do Blockbench usam o osso pelo nome, sem partes nem espelho
+            boneLayers.computeIfAbsent(e.getKey(), k -> new java.util.ArrayList<>()).add(new PartLayer(cfg.toPose(e.getValue()), w, p.additive()));
             Part part = Part.fromBone(e.getKey());
             if (part == null) continue;
             PartPose pose = cfg.toPose(e.getValue());

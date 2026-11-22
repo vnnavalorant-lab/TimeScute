@@ -39,7 +39,12 @@ public final class ActorManager {
         String item = "", skin = "";
         PlayerListEntry skinEntry;
         Map<Part, List<PartLayer>> layers = Map.of();
+        Map<String, List<PartLayer>> boneLayers = Map.of();
+        String model = "";
     }
+
+    /** O que o desenho precisa de um ator com modelo do Blockbench. */
+    public record ModelView(GeoModel model, Identifier texture, Map<String, List<PartLayer>> layers, String key) { }
 
     private final ClipLibrary clips = new ClipLibrary();
     private final Map<Long, Live> live = new HashMap<>();
@@ -58,6 +63,7 @@ public final class ActorManager {
     public List<String> reloadAnimations() {
         try {
             AnimFiles.Scan sc = AnimFiles.scan(animationsDir());
+            ModelManager.get().clearClipCache();
             clips.clearImported();
             clips.addImported(sc.clips());
             AnimFiles.loadConfig(animationsDir(), clips);
@@ -92,6 +98,15 @@ public final class ActorManager {
     public Map<Part, List<PartLayer>> layersFor(Object entity) {
         Live l = find(entity);
         return l == null || l.layers.isEmpty() ? null : l.layers;
+    }
+
+    /** Modelo do Blockbench do ator (para o mixin do renderizador), ou null: desenha o jogador normalmente. */
+    public ModelView modelView(Object entity) {
+        Live l = find(entity);
+        if (l == null || l.model.isEmpty()) return null;
+        GeoModel gm = ModelManager.get().model(l.model);
+        if (gm == null) return null; // modelo apagado: cai para o jogador
+        return new ModelView(gm, ModelManager.get().texture(l.model), l.boneLayers, l.model);
     }
 
     /** Pele do ator (para o mixin da pele), ou null para o comportamento normal do jogo. */
@@ -205,6 +220,8 @@ public final class ActorManager {
         l.prevSwingFlag = flag;
         l.lastSwings = pose.swingCount;
         l.layers = pose.layers;
+        l.boneLayers = pose.boneLayers;
+        l.model = a.model();
 
         if (!a.skin().equals(l.skin) || l.skinEntry == null) { l.skin = a.skin(); l.skinEntry = skinFor(mc, a.skin()); }
     }

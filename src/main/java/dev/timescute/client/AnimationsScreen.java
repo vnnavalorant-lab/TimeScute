@@ -134,7 +134,7 @@ public final class AnimationsScreen extends Screen {
             boolean sel = n.equals(selected), hov = mx >= 10 && mx < width - 10 && my >= y && my < y + ROW_H - 1;
             ctx.fill(10, y, width - 10, y + ROW_H - 1, sel ? 0xFF1F3F66 : hov ? 0xFF2B3345 : 0xFF181C26);
             String tag = c == null ? "" : c.builtin() ? "  (embutida)" : "";
-            ctx.drawTextWithShadow(textRenderer, ClipLibrary.label(n) + tag, 16, y + 5, c != null && !c.affectsPlayer() ? ERROR : TEXT);
+            ctx.drawTextWithShadow(textRenderer, ClipLibrary.label(n) + tag, 16, y + 5, c != null && !c.affectsPlayer() ? WARN : TEXT); // sem ossos de jogador: serve para modelos do Blockbench
             if (c != null) {
                 String info = String.format(Locale.ROOT, "%.1f s  |  %s", c.length(), switch (c.loop()) { case LOOP -> "repete"; case HOLD -> "segura o fim"; case ONCE -> "uma vez"; });
                 if (!c.unmappedBones().isEmpty()) info += "  |  ossos ignorados: " + c.unmappedBones().size();
@@ -151,9 +151,9 @@ public final class AnimationsScreen extends Screen {
         } else {
             List<String> mapped = new ArrayList<>();
             for (String b : sc.bones().keySet()) { Part p = Part.fromBone(b); if (p != null) mapped.add(p.label); }
-            ctx.drawTextWithShadow(textRenderer, "Controla: " + (mapped.isEmpty() ? "nada (nenhum osso é do jogador)" : String.join(", ", mapped)), 12, dy, mapped.isEmpty() ? ERROR : OK);
+            ctx.drawTextWithShadow(textRenderer, "Controla: " + (mapped.isEmpty() ? "nada do jogador (serve para modelos do Blockbench)" : String.join(", ", mapped)), 12, dy, mapped.isEmpty() ? WARN : OK);
             if (!sc.unmappedBones().isEmpty())
-                ctx.drawTextWithShadow(textRenderer, "Ignorados (o jogador não tem esses ossos): " + String.join(", ", sc.unmappedBones()), 12, dy + 11, WARN);
+                ctx.drawTextWithShadow(textRenderer, "Ossos que o jogador não tem (só modelos do Blockbench com esses ossos usam): " + String.join(", ", sc.unmappedBones()), 12, dy + 11, WARN);
             if (selected.equals(BuiltinClips.CALIBRATE)) {
                 int hy = dy + 11 + (sc.unmappedBones().isEmpty() ? 0 : 11);
                 int maxLines = Math.max(1, (listBottom() + 56 - hy) / 11);
@@ -174,7 +174,7 @@ public final class AnimationsScreen extends Screen {
         bX.setMessage(Text.literal("Inverter X: " + (cfg != null && cfg.flipPitch() ? "sim" : "não")));
         bY.setMessage(Text.literal("Inverter Y: " + (cfg != null && cfg.flipYaw() ? "sim" : "não")));
         bZ.setMessage(Text.literal("Inverter Z: " + (cfg != null && cfg.flipRoll() ? "sim" : "não")));
-        if (bUse != null) bUse.active = sc != null && sc.affectsPlayer();
+        if (bUse != null) bUse.active = sc != null; // clipes só de modelos do Blockbench também podem ser escolhidos
         super.render(ctx, mx, my, delta);
     }
 

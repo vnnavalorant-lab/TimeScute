@@ -46,6 +46,8 @@ public record Reaction(long id, long startMs, long durationMs, ReactionType type
             case USE_ITEM -> "Usar" + (itemId.isEmpty() ? "" : " " + simpleItem(itemId));
             case SWAP_ITEM -> "Item " + (itemId.isEmpty() ? "(vazio)" : simpleItem(itemId));
             case LOOK_AT -> "Olhar" + (label.isEmpty() ? "" : " " + label);
+            case WALK -> (offHand ? "Esgueirar" : "Andar") + (label.isEmpty() ? "" : " " + label);
+            case TURN -> "Virar" + (label.isEmpty() ? "" : " " + label);
         };
     }
 

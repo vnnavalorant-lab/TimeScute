@@ -101,6 +101,18 @@ public final class CameraDirector {
 
     // ---------- guias 3D ----------
 
+    // ---------- modo corte ----------
+
+    private boolean cutMode;
+    public boolean cutMode() { return cutMode; }
+    public void toggleCutMode() { cutMode = !cutMode; }
+
+    /** Captura a câmera real no playhead: como corte (câmera parada que salta) ou keyframe normal (que viaja), conforme o modo. */
+    public Keyframe captureKeyframe(MinecraftClient mc) {
+        CameraState s = captureCurrent(mc);
+        return cutMode ? timeline.captureCut(playheadMs(), s) : timeline.capture(playheadMs(), s);
+    }
+
     public boolean showGuides() { return showGuides; }
     public void toggleGuides() { showGuides = !showGuides; }
 

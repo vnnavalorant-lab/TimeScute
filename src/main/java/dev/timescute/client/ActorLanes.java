@@ -30,7 +30,9 @@ final class ActorLanes {
         void openReaction(long actorId, long reactionId);
     }
 
-    static final int LANE_H = 34, MAX_VISIBLE = 3, EDGE_PX = 5;
+    static final int LANE_H = 34, EDGE_PX = 5;
+    /** Quantas faixas de atores cabem de uma vez (Configurações → Interface). */
+    static int maxVisible() { return ModSettings.get().lanesVisible; }
     private static final int[] PALETTE = {0xFF4DA3FF, 0xFFE8A33D, 0xFF6BD68B, 0xFFE0626A, 0xFFB388FF, 0xFF26C6DA};
     private static final int TEXT = 0xFFE6EAF2, MUTED = 0xFF8A93A6, DIM = 0xFF565E70;
 
@@ -56,16 +58,18 @@ final class ActorLanes {
             case USE_ITEM -> 0xFFFFA726;
             case SWAP_ITEM -> 0xFF66BB6A;
             case LOOK_AT -> 0xFF42A5F5;
+            case WALK -> 0xFF26A69A;
+            case TURN -> 0xFF8D6E63;
         };
     }
 
     // ================= geometria =================
 
     private List<Actor> actors() { return tl.actors().all(); }
-    int visibleCount() { return Math.min(MAX_VISIBLE, actors().size()); }
+    int visibleCount() { return Math.min(maxVisible(), actors().size()); }
     int height() { return visibleCount() * LANE_H; }
     boolean contains(double mx, double my) { return my >= host.top() && my < host.top() + height() && mx >= 0 && mx <= host.width(); }
-    private void clampScroll() { scroll = Math.max(0, Math.min(scroll, Math.max(0, actors().size() - MAX_VISIBLE))); }
+    private void clampScroll() { scroll = Math.max(0, Math.min(scroll, Math.max(0, actors().size() - maxVisible()))); }
 
     // ================= seleção =================
 
@@ -97,7 +101,9 @@ final class ActorLanes {
         Actor x = a.get();
         return x.hasPerformance()
                 ? String.format(Locale.ROOT, "Ator \"%s\": performance de %s, começa em %s | %d reação(ões)", x.name(), Fmt.duration(x.performance().durationMs()), TimelineView.format(x.startMs()), x.reactions().size())
-                : "Ator \"" + x.name() + "\": ainda sem gravação (use Gravar)";
+                : x.isScripted()
+                ? "Ator \"" + x.name() + "\": roteirizado, " + x.reactions().size() + " bloco(s) | duplo clique na faixa cria um bloco (Andar até, Virar...)"
+                : "Ator \"" + x.name() + "\": ainda sem gravação (use Gravar ou crie um ator de roteiro)";
     }
 
     // ================= ações =================
@@ -117,6 +123,11 @@ final class ActorLanes {
                     double[] f = PathGeometry.forward(new CameraState(0, 0, 0, mc.player.getYaw(), mc.player.getPitch(), 0, 70));
                     r = r.withTarget(mc.player.getX() + f[0] * 5, mc.player.getY() + 1.6 + f[1] * 5, mc.player.getZ() + f[2] * 5, "", "ponto");
                 }
+            }
+            case WALK, TURN -> {
+                MinecraftClient mc = MinecraftClient.getInstance();
+                if (mc.player != null) r = r.withTarget(mc.player.getX(), mc.player.getY(), mc.player.getZ(), "", "minha posição");
+                if (type == ReactionType.WALK) r = Reaction.of(r.id(), r.startMs(), 3000, type).withTarget(r.tx(), r.ty(), r.tz(), "", r.label());
             }
             default -> { }
         }
@@ -152,7 +163,7 @@ final class ActorLanes {
     }
 
     boolean wheel(double mx, double my, double amount) {
-        if (!contains(mx, my) || actors().size() <= MAX_VISIBLE) return false;
+        if (!contains(mx, my) || actors().size() <= maxVisible()) return false;
         scroll -= (int) Math.signum(amount);
         clampScroll();
         return true;
@@ -247,6 +258,7 @@ final class ActorLanes {
     // ================= desenho =================
 
     List<Text> draw(DrawContext ctx, int mx, int my, List<Text> tip) {
+        clampScroll(); // o número de faixas visíveis pode ter mudado
         clampScroll();
         TextRenderer font = host.font();
         List<Actor> as = actors();
@@ -258,8 +270,8 @@ final class ActorLanes {
             ctx.fill(0, y, 3, y + LANE_H, sel ? color : 0xFF2A3142);
             ctx.fill(8, y + 6, 14, y + 12, color);
             ctx.drawTextWithShadow(font, ellipsize(font, a.name(), host.x0() - 24), 18, y + 5, sel ? TEXT : MUTED);
-            String sub = a.muted() ? "(oculto)" : a.hasPerformance() ? Fmt.duration(a.performance().durationMs()) : "sem gravação";
-            ctx.drawText(font, sub, 18, y + 18, a.hasPerformance() && !a.muted() ? DIM : 0xFFB0644F, false);
+            String sub = a.muted() ? "(oculto)" : a.hasPerformance() ? Fmt.duration(a.performance().durationMs()) : a.isScripted() ? "roteiro" : "sem gravação";
+            ctx.drawText(font, sub, 18, y + 18, (a.hasPerformance() || a.isScripted()) && !a.muted() ? DIM : 0xFFB0644F, false);
 
             ctx.enableScissor(host.x0(), y, host.x1(), y + LANE_H);
             if (a.hasPerformance()) {
@@ -281,8 +293,8 @@ final class ActorLanes {
             }
             ctx.disableScissor();
         }
-        if (as.size() > MAX_VISIBLE)
-            ctx.drawText(font, (scroll + 1) + "-" + (scroll + MAX_VISIBLE) + "/" + as.size() + " (roda)", 18, host.top() + height() - 10, DIM, false);
+        if (as.size() > maxVisible())
+            ctx.drawText(font, (scroll + 1) + "-" + (scroll + maxVisible()) + "/" + as.size() + " (roda)", 18, host.top() + height() - 10, DIM, false);
 
         if (drag == Drag.NONE && contains(mx, my) && mx >= host.x0() && mx <= host.x1()) {
             int ai = scroll + (my - host.top()) / LANE_H;

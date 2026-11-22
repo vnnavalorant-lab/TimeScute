@@ -10,5 +10,7 @@ public final class AllTests {
         Phase5Tests.main(args);
         System.out.println("\n== Atores e animações ==");
         ActorTests.main(args);
+        System.out.println("\n== Cortes, atores roteirizados e modelos ==");
+        Phase6Tests.main(args);
     }
 }

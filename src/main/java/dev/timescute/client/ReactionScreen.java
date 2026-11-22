@@ -20,7 +20,10 @@ import java.util.Optional;
 
 /** Edição de uma reação: o painel fica à direita para você continuar vendo o ator e o mundo. */
 public final class ReactionScreen extends Screen {
-    private static final int W = 330, H = 262;
+    private static final int H = 262;
+    private int W = 330;
+    private boolean resizing;
+    private int resizeW;
     private static final int TEXT = 0xFFE6EAF2, MUTED = 0xFF8A93A6, ERROR = 0xFFFF6B6B, OK = 0xFF6BD68B, WARN = 0xFFE8A33D;
     private static final double[] SPEEDS = {0.5, 1, 1.5, 2};
     private static final double[] WEIGHTS = {0.25, 0.5, 0.75, 1};
@@ -50,19 +53,21 @@ public final class ReactionScreen extends Screen {
         this.draft = draft;
     }
 
-    private int px() { return width - W - 10; }
+    private int px() { return UiLayout.dockX(width, W); }
     private int py() { return Math.max(4, (height - H) / 2); }
 
     @Override
     protected void init() {
         if (draft == null) { close(); return; }
         CameraDirector.get().setEditorOpen(true);
+        W = Math.max(320, UiLayout.dockW(width)); // os botões desta tela precisam de pelo menos 320
         int x = px(), y = py();
 
         btn("Tipo: " + draft.type().label, x + 10, y + 24, W - 20, () -> {
             commit();
-            ReactionType t = draft.type().next();
+            ReactionType t = draft.type().next(isScripted());
             draft = draft.withType(t);
+            if (t.scriptedOnly() && draft.tx() == 0 && draft.ty() == 0 && draft.tz() == 0) useMyPosition();
             if (t == ReactionType.ANIMATION && draft.anim().clip().isEmpty()) draft = draft.withAnim(draft.anim().withClip(BuiltinClips.WAVE));
             if (t == ReactionType.SWAP_ITEM && draft.itemId().isEmpty()) draft = draft.withItem("minecraft:diamond_sword");
             reopen();
@@ -106,6 +111,18 @@ public final class ReactionScreen extends Screen {
                     btn("Mão: " + (draft.offHand() ? "secundária" : "principal"), x + 14 + (W - 24) / 2, yy + 40, (W - 24) / 2, () -> { commit(); draft = draft.withOffHand(!draft.offHand()); reopen(); }, "");
                 }
             }
+            case WALK -> {
+                btn("Destino: minha posição", x + 10, yy, (W - 24) / 2, () -> { commit(); useMyPosition(); reopen(); },
+                        "O ator vai até onde você está agora. Posicione-se no lugar certo e clique.");
+                btn("Destino: bloco que miro", x + 14 + (W - 24) / 2, yy, (W - 24) / 2, () -> { commit(); aimFeet(); reopen(); },
+                        "O ator vai até o bloco para onde você está mirando (em cima dele).");
+                btn("Andar: " + (draft.offHand() ? "esgueirando" : "normal"), x + 10, yy + 24, (W - 24) / 2, () -> { commit(); draft = draft.withOffHand(!draft.offHand()); reopen(); },
+                        "Esgueirando = agachado. Sem isso, andar muito rápido vira corrida automaticamente.");
+            }
+            case TURN -> {
+                btn("Olhar para: minha posição", x + 10, yy, (W - 24) / 2, () -> { commit(); useMyPosition(); reopen(); }, "O ator vira o corpo para onde você está agora.");
+                btn("Olhar para: bloco que miro", x + 14 + (W - 24) / 2, yy, (W - 24) / 2, () -> { commit(); aimFeet(); reopen(); }, "O ator vira o corpo para o bloco que você está mirando.");
+            }
             case LOOK_AT -> btn("Capturar mira (onde você olha)", x + 10, yy, W - 20, () -> { commit(); captureAim(); reopen(); },
                     "Mire num bloco ou entidade antes de abrir esta tela: o ator olhará para lá. Entidades são seguidas se mexerem.");
         }
@@ -143,6 +160,46 @@ public final class ReactionScreen extends Screen {
     private void handItem() {
         if (client.player == null || client.player.getMainHandStack().isEmpty()) { error = "Você não está segurando nenhum item."; return; }
         draft = draft.withItem(Registries.ITEM.getId(client.player.getMainHandStack().getItem()).toString());
+    }
+
+    /** De onde este Andar parte: o destino do Andar anterior, ou a posição inicial do ator. */
+    private double[] actorStart() {
+        Optional<Actor> oa = CameraDirector.get().timeline.actors().byId(actorId);
+        if (oa.isEmpty() || !oa.get().isScripted()) return null;
+        double[] p = {oa.get().origin().x(), oa.get().origin().y(), oa.get().origin().z()};
+        for (Reaction r : oa.get().reactions())
+            if (r.type() == ReactionType.WALK && r.id() != draft.id() && r.startMs() < draft.startMs()) { p[0] = r.tx(); p[1] = r.ty(); p[2] = r.tz(); }
+        return p;
+    }
+
+    /** Ossos do clipe que existem no modelo do Blockbench do ator; nulo se o ator usa o modelo do jogador. */
+    private java.util.List<String> modelBones(AnimClip clip) {
+        Optional<Actor> oa = CameraDirector.get().timeline.actors().byId(actorId);
+        if (oa.isEmpty() || !oa.get().hasModel()) return null;
+        GeoModel gm = ModelManager.get().model(oa.get().model());
+        if (gm == null) return null;
+        java.util.List<String> hit = new java.util.ArrayList<>();
+        for (String b : clip.bones().keySet()) if (gm.bone(b).isPresent()) hit.add(b);
+        return hit;
+    }
+
+    private boolean isScripted() {
+        return CameraDirector.get().timeline.actors().byId(actorId).map(Actor::isScripted).orElse(false);
+    }
+
+    private void useMyPosition() {
+        if (client == null || client.player == null) return;
+        draft = draft.withTarget(client.player.getX(), client.player.getY(), client.player.getZ(), "", "minha posição");
+    }
+
+    /** O ponto em cima do bloco mirado (onde os pés do ator ficam), ou a minha posição se não houver bloco. */
+    private void aimFeet() {
+        if (client.crosshairTarget instanceof BlockHitResult bh && bh.getType() == HitResult.Type.BLOCK) {
+            var bp = bh.getBlockPos();
+            draft = draft.withTarget(bp.getX() + 0.5, bp.getY() + 1.0, bp.getZ() + 0.5, "", "bloco");
+        } else {
+            useMyPosition();
+        }
     }
 
     private void captureAim() {
@@ -190,7 +247,7 @@ public final class ReactionScreen extends Screen {
     @Override
     public void render(DrawContext ctx, int mx, int my, float delta) {
         int x = px(), y = py();
-        ctx.fill(x, y, x + W, y + H, 0xEE12151C);
+        ctx.fill(x, y, x + W, y + H, UiLayout.bg());
         ctx.drawBorder(x, y, W, H, 0xFF2A3142);
         ctx.drawCenteredTextWithShadow(textRenderer, "Editar reação", x + W / 2, y + 8, TEXT);
         ctx.drawTextWithShadow(textRenderer, "Início (s)", x + 10, y + 54, MUTED);
@@ -202,6 +259,11 @@ public final class ReactionScreen extends Screen {
                 var clip = ActorManager.get().clips().clip(draft.anim().clip());
                 if (draft.anim().clip().isEmpty()) ctx.drawTextWithShadow(textRenderer, "Escolha uma animação.", x + 10, yy + 118, WARN);
                 else if (clip.isEmpty()) ctx.drawTextWithShadow(textRenderer, "Animação não encontrada (arquivo removido?).", x + 10, yy + 118, ERROR);
+                else if (modelBones(clip.get()) != null) {
+                    java.util.List<String> hit = modelBones(clip.get());
+                    ctx.drawTextWithShadow(textRenderer, hit.isEmpty() ? "Nenhum osso desta animação existe no modelo do ator." : "Vai mexer nos ossos: " + String.join(", ", hit.size() > 5 ? hit.subList(0, 5) : hit) + (hit.size() > 5 ? "..." : ""),
+                            x + 10, yy + 118, hit.isEmpty() ? ERROR : OK);
+                }
                 else if (!clip.get().affectsPlayer()) ctx.drawTextWithShadow(textRenderer, "Esta animação não mexe em nenhuma parte do jogador.", x + 10, yy + 118, ERROR);
                 else {
                     java.util.List<String> parts = new java.util.ArrayList<>();
@@ -217,6 +279,20 @@ public final class ReactionScreen extends Screen {
                 boolean ok = id.isEmpty() || (ident != null && Registries.ITEM.containsId(ident));
                 ctx.drawTextWithShadow(textRenderer, id.isEmpty() ? "vazio: mão livre" : ok ? "item válido" : "item desconhecido", x + 10, yy + 34 + (draft.type() == ReactionType.USE_ITEM ? 56 : 0), id.isEmpty() ? MUTED : ok ? OK : ERROR);
             }
+            case WALK, TURN -> {
+                ctx.drawTextWithShadow(textRenderer, "Destino: " + (draft.label().isEmpty() ? "(nenhum)" : draft.label()), x + 10, yy + (draft.type() == ReactionType.WALK ? 52 : 28), TEXT);
+                ctx.drawTextWithShadow(textRenderer, String.format(Locale.ROOT, "x %.1f  y %.1f  z %.1f", draft.tx(), draft.ty(), draft.tz()), x + 10, yy + (draft.type() == ReactionType.WALK ? 64 : 40), MUTED);
+                if (draft.type() == ReactionType.WALK) {
+                    double[] from = actorStart();
+                    if (from != null) {
+                        double dist = Math.hypot(draft.tx() - from[0], draft.tz() - from[2]);
+                        double sp = dist / (draft.durationMs() / 1000.0);
+                        ctx.drawTextWithShadow(textRenderer, String.format(Locale.ROOT, "%.1f blocos em %.1f s = %.1f blocos/s (%s)", dist, draft.durationMs() / 1000.0, sp,
+                                draft.offHand() ? "esgueirando" : sp > ScriptedMotion.SPRINT_BLOCKS_PER_S ? "corrida" : sp < 0.3 ? "quase parado" : "andando"), x + 10, yy + 80, sp > 12 ? WARN : OK);
+                    }
+                }
+                if (!isScripted()) ctx.drawTextWithShadow(textRenderer, "Só atores roteirizados usam este bloco.", x + 10, yy + 100, ERROR);
+            }
             case LOOK_AT -> {
                 String where = draft.targetEntity().isEmpty() ? "ponto fixo" : "segue a entidade";
                 ctx.drawTextWithShadow(textRenderer, "Alvo: " + (draft.label().isEmpty() ? "(nenhum)" : draft.label()) + " (" + where + ")", x + 10, yy + 28, TEXT);
@@ -226,6 +302,32 @@ public final class ReactionScreen extends Screen {
         }
         if (!error.isEmpty()) ctx.drawTextWithShadow(textRenderer, error, x + 10, y + H - 40, ERROR);
         super.render(ctx, mx, my, delta);
+        UiLayout.drawHandle(ctx, px(), py(), W, H, resizing || UiLayout.overHandle(mx, my, px(), py(), W, H));
+        if (resizing) UiLayout.drawGhost(ctx, mx, height, resizeW, textRenderer);
+    }
+
+    @Override
+    public boolean mouseClicked(double mx, double my, int button) {
+        if (button == 0 && UiLayout.overHandle(mx, my, px(), py(), W, H)) { resizing = true; resizeW = W; return true; }
+        return super.mouseClicked(mx, my, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mx, double my, int button, double dx, double dy) {
+        if (resizing) { resizeW = UiLayout.widthAt(mx, width); return true; }
+        return super.mouseDragged(mx, my, button, dx, dy);
+    }
+
+    @Override
+    public boolean mouseReleased(double mx, double my, int button) {
+        if (resizing) {
+            resizing = false;
+            commit();
+            UiLayout.commitWidth(resizeW);
+            reopen(); // refaz a tela com a largura nova, mantendo o que foi digitado
+            return true;
+        }
+        return super.mouseReleased(mx, my, button);
     }
 
     @Override
