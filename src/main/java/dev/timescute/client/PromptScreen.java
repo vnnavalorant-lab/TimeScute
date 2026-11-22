@@ -28,6 +28,7 @@ public final class PromptScreen extends Screen {
 
     @Override
     protected void init() {
+        CameraDirector.get().setEditorOpen(true);
         int cx = width / 2, cy = height / 2;
         field = new TextFieldWidget(textRenderer, cx - 110, cy - 10, 220, 20, Text.literal(heading));
         field.setMaxLength(64);
@@ -60,6 +61,9 @@ public final class PromptScreen extends Screen {
         if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) { submit(); return true; }
         return super.keyPressed(key, scan, mods);
     }
+
+    @Override
+    public void removed() { CameraDirector.get().setEditorOpen(false); }
 
     @Override
     public void close() {

@@ -7,9 +7,11 @@ public final class PathJson {
     public static final String FORMAT = "timescute-path";
     /** Nome do formato quando o mod ainda se chamava Kinema; ainda é aceito na leitura. */
     private static final String LEGACY_FORMAT = "kinema-path";
-    public static final int VERSION = 1;
+    public static final int VERSION = 2;
 
-    public record Data(List<Keyframe> keys, List<SpeedKey> speeds) { }
+    public record Data(List<Keyframe> keys, List<SpeedKey> speeds, List<Actor> actors) { }
+
+    private static final int MAX_ACTORS = 200, MAX_REACTIONS = 5000, MAX_FRAMES = 2_000_000;
 
     private PathJson() { }
 
@@ -36,8 +38,119 @@ public final class PathJson {
             b.append(i == 0 ? "\n" : ",\n").append("    {\"id\": ").append(k.id())
                     .append(", \"t\": ").append(k.timeMs()).append(", \"v\": ").append(num(k.speed())).append("}");
         }
-        b.append(ss.isEmpty() ? "]" : "\n  ]").append("\n}\n");
+        b.append(ss.isEmpty() ? "]" : "\n  ]");
+        writeActors(b, t.actors().all());
+        b.append("\n}\n");
         return b.toString();
+    }
+
+    private static String r(double v, int decimals) {
+        if (Double.isNaN(v) || Double.isInfinite(v)) return "0";
+        double f = Math.pow(10, decimals);
+        return Double.toString(Math.round(v * f) / f);
+    }
+
+    private static void writeActors(StringBuilder b, List<Actor> actors) {
+        b.append(",\n  \"actors\": [");
+        for (int ai = 0; ai < actors.size(); ai++) {
+            Actor a = actors.get(ai);
+            Map<String, Integer> items = new LinkedHashMap<>();
+            items.put("", 0);
+            for (ActorFrame f : a.performance().frames()) items.putIfAbsent(f.item(), items.size());
+
+            b.append(ai == 0 ? "\n" : ",\n").append("    {\"id\": ").append(a.id())
+                    .append(", \"name\": ").append(Json.quote(a.name()))
+                    .append(", \"skin\": ").append(Json.quote(a.skin()))
+                    .append(", \"startMs\": ").append(a.startMs())
+                    .append(", \"muted\": ").append(a.muted()).append(",\n      \"items\": [");
+            int n = 0;
+            for (String it : items.keySet()) b.append(n++ == 0 ? "" : ", ").append(Json.quote(it));
+            b.append("],\n      \"frames\": [");
+            List<ActorFrame> fr = a.performance().frames();
+            for (int i = 0; i < fr.size(); i++) {
+                ActorFrame f = fr.get(i);
+                b.append(i == 0 ? "\n        " : ",\n        ").append('[').append(f.timeMs())
+                        .append(',').append(r(f.x(), 3)).append(',').append(r(f.y(), 3)).append(',').append(r(f.z(), 3))
+                        .append(',').append(r(f.yaw(), 2)).append(',').append(r(f.pitch(), 2))
+                        .append(',').append(r(f.headYaw(), 2)).append(',').append(r(f.bodyYaw(), 2))
+                        .append(',').append(f.flags()).append(',').append(f.slot()).append(',').append(items.get(f.item())).append(']');
+            }
+            b.append(fr.isEmpty() ? "]" : "\n      ]").append(",\n      \"reactions\": [");
+            List<Reaction> rs = a.reactions();
+            for (int i = 0; i < rs.size(); i++) {
+                Reaction x = rs.get(i);
+                b.append(i == 0 ? "\n        " : ",\n        ").append("{\"id\": ").append(x.id())
+                        .append(", \"t\": ").append(x.startMs()).append(", \"d\": ").append(x.durationMs())
+                        .append(", \"type\": ").append(Json.quote(x.type().name()))
+                        .append(", \"clip\": ").append(Json.quote(x.anim().clip()))
+                        .append(", \"parts\": ").append(x.anim().partMask())
+                        .append(", \"speed\": ").append(num(x.anim().speed())).append(", \"weight\": ").append(num(x.anim().weight()))
+                        .append(", \"additive\": ").append(x.anim().additive()).append(", \"mirror\": ").append(x.anim().mirror())
+                        .append(", \"fit\": ").append(x.anim().fit())
+                        .append(", \"item\": ").append(Json.quote(x.itemId()))
+                        .append(", \"off\": ").append(x.offHand()).append(", \"count\": ").append(x.count())
+                        .append(", \"x\": ").append(num(x.tx())).append(", \"y\": ").append(num(x.ty())).append(", \"z\": ").append(num(x.tz()))
+                        .append(", \"entity\": ").append(Json.quote(x.targetEntity()))
+                        .append(", \"label\": ").append(Json.quote(x.label())).append("}");
+            }
+            b.append(rs.isEmpty() ? "]" : "\n      ]").append("}");
+        }
+        b.append(actors.isEmpty() ? "]" : "\n  ]");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Actor> readActors(Map<String, Object> m, Set<Long> usedIds) {
+        List<Actor> out = new ArrayList<>();
+        if (!m.containsKey("actors")) return out;
+        List<Object> list = list(m.get("actors"));
+        if (list.size() > MAX_ACTORS) throw new IllegalArgumentException("Atores demais no arquivo.");
+        for (Object ao : list) {
+            Map<String, Object> a = obj(ao);
+            long id = (long) d(a.get("id"), "id");
+            if (!usedIds.add(id)) throw new IllegalArgumentException("Ids repetidos no arquivo.");
+
+            List<String> items = new ArrayList<>();
+            for (Object o : list(a.get("items"))) items.add(o instanceof String str ? str : "");
+            if (items.isEmpty()) items.add("");
+
+            List<Object> rawFrames = list(a.get("frames"));
+            if (rawFrames.size() > MAX_FRAMES) throw new IllegalArgumentException("Quadros demais na performance.");
+            List<ActorFrame> frames = new ArrayList<>(rawFrames.size());
+            for (Object fo : rawFrames) {
+                List<Object> f = list(fo);
+                if (f.size() != 11) throw new IllegalArgumentException("Quadro da performance inválido.");
+                long t = (long) d(f.get(0), "t");
+                if (t < 0) throw new IllegalArgumentException("Quadro com tempo negativo.");
+                int idx = (int) d(f.get(10), "item");
+                if (idx < 0 || idx >= items.size()) throw new IllegalArgumentException("Quadro aponta para um item inexistente.");
+                frames.add(new ActorFrame(t, d(f.get(1), "x"), d(f.get(2), "y"), d(f.get(3), "z"),
+                        (float) d(f.get(4), "yaw"), (float) d(f.get(5), "pitch"), (float) d(f.get(6), "head"), (float) d(f.get(7), "body"),
+                        (int) d(f.get(8), "flags"), (int) d(f.get(9), "slot"), items.get(idx)));
+            }
+
+            List<Object> rawReactions = a.containsKey("reactions") ? list(a.get("reactions")) : List.of();
+            if (rawReactions.size() > MAX_REACTIONS) throw new IllegalArgumentException("Reações demais para um ator.");
+            List<Reaction> reactions = new ArrayList<>();
+            for (Object ro : rawReactions) {
+                Map<String, Object> r = obj(ro);
+                long rid = (long) d(r.get("id"), "id");
+                if (!usedIds.add(rid)) throw new IllegalArgumentException("Ids repetidos no arquivo.");
+                long t = (long) d(r.get("t"), "t");
+                if (t < 0) throw new IllegalArgumentException("Reação com tempo negativo.");
+                ReactionType type = ReactionType.ANIMATION;
+                if (r.get("type") instanceof String ts) { try { type = ReactionType.valueOf(ts); } catch (IllegalArgumentException ignored) { /* padrão */ } }
+                AnimParams anim = new AnimParams(r.get("clip") instanceof String cs ? cs : "", (int) opt(r.get("parts"), Part.ALL),
+                        opt(r.get("speed"), 1), opt(r.get("weight"), 1), Boolean.TRUE.equals(r.get("additive")),
+                        Boolean.TRUE.equals(r.get("mirror")), Boolean.TRUE.equals(r.get("fit")));
+                reactions.add(new Reaction(rid, t, (long) d(r.get("d"), "d"), type, anim,
+                        r.get("item") instanceof String is ? is : "", Boolean.TRUE.equals(r.get("off")),
+                        (int) opt(r.get("count"), 1), opt(r.get("x"), 0), opt(r.get("y"), 0), opt(r.get("z"), 0),
+                        r.get("entity") instanceof String es ? es : "", r.get("label") instanceof String ls ? ls : ""));
+            }
+            out.add(new Actor(id, a.get("name") instanceof String n ? n : "Ator", a.get("skin") instanceof String sk ? sk : "",
+                    (long) opt(a.get("startMs"), 0), Performance.of(frames), reactions, Boolean.TRUE.equals(a.get("muted"))));
+        }
+        return out;
     }
 
     private static String num(double d) {
@@ -87,7 +200,7 @@ public final class PathJson {
             }
             speeds.sort(Comparator.comparingLong(SpeedKey::timeMs));
         }
-        return new Data(keys, speeds);
+        return new Data(keys, speeds, readActors(m, usedIds));
     }
 
     private static double d(Object o, String name) {

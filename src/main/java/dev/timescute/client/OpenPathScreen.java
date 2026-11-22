@@ -119,7 +119,7 @@ public final class OpenPathScreen extends Screen {
     private void open(String name) {
         try {
             PathJson.Data d = PathFiles.read(dir.pathsDir(), name);
-            dir.timeline.replaceAll(d.keys(), d.speeds(), "Abrir \"" + name + "\"");
+            dir.timeline.replaceAll(d.keys(), d.speeds(), d.actors(), "Abrir \"" + name + "\"");
             dir.selection.clear();
             dir.pause();
             dir.setPlayhead(0);

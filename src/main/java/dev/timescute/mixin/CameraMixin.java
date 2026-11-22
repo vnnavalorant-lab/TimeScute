@@ -1,5 +1,6 @@
 package dev.timescute.mixin;
 
+import dev.timescute.client.ActorManager;
 import dev.timescute.client.CameraDirector;
 import net.minecraft.client.render.Camera;
 import net.minecraft.entity.Entity;
@@ -21,6 +22,7 @@ public abstract class CameraMixin {
     private void timescute$advance(BlockView area, Entity focused, boolean thirdPerson, boolean inverseView,
                                 float tickDelta, CallbackInfo ci) {
         CameraDirector.get().advance();
+        ActorManager.get().frame(net.minecraft.client.MinecraftClient.getInstance());
     }
 
     /** Depois do Minecraft posicionar a câmera, sobrescrevemos com o trajeto. */

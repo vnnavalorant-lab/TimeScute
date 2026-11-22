@@ -24,6 +24,9 @@ public final class CameraDirector {
     private long playheadMs;
     private boolean playing;
     private boolean editorOpen;
+    private boolean rendering;
+    private boolean cameraOverride = true;
+    private boolean freeRun;
     private long lastNanos;
 
     private boolean showGuides = true;
@@ -42,33 +45,50 @@ public final class CameraDirector {
     public long playheadMs() { return playheadMs; }
     public boolean isPlaying() { return playing; }
     public void setEditorOpen(boolean open) { editorOpen = open; }
+    /** Durante a renderização o tempo não anda sozinho: quem conduz é a RenderSession, quadro a quadro. */
+    public void setRendering(boolean r) { rendering = r; if (r) playing = false; }
+    public boolean isRendering() { return rendering; }
 
-    public void setPlayhead(long ms) { playheadMs = Math.max(0, ms); }
-    public void pause() { playing = false; }
+    /** Se false, o tempo corre (os atores atuam) mas a câmera continua sendo a do jogador (usado ao gravar um ator). */
+    public void setCameraOverride(boolean on) { cameraOverride = on; }
 
-    public void togglePlay() {
-        if (timeline.path().isEmpty()) return;
-        if (playing) { playing = false; return; }
-        if (playheadMs >= timeline.path().lastTimeMs()) playheadMs = 0;
+    /** Há algo acontecendo no palco (atores devem aparecer)? */
+    public boolean isStageActive() { return editorOpen || playing || rendering; }
+
+    /** Começa a rodar a timeline do instante atual. */
+    public void startStage(boolean withCamera) { startStage(withCamera, false); }
+
+    /** @param freeRun não para no fim do conteúdo (gravando, o conteúdo ainda está sendo criado) */
+    public void startStage(boolean withCamera, boolean freeRun) {
+        cameraOverride = withCamera;
+        this.freeRun = freeRun;
         playing = true;
         lastNanos = System.nanoTime();
     }
 
+    public void setPlayhead(long ms) { playheadMs = Math.max(0, ms); }
+    public void pause() { playing = false; freeRun = false; cameraOverride = true; }
+
+    public void togglePlay() {
+        if (timeline.contentEndMs() <= 0) return;
+        if (playing) { playing = false; return; }
+        if (playheadMs >= timeline.contentEndMs()) playheadMs = 0;
+        startStage(true);
+    }
+
     /** Chamado uma vez por frame (pelo mixin da câmera). */
     public void advance() {
-        if (!playing) return;
+        if (rendering || !playing) return;
         long now = System.nanoTime();
-        long old = playheadMs;
         playheadMs += (now - lastNanos) / 1_000_000L;
         lastNanos = now;
-        long end = timeline.path().lastTimeMs();
-        if (playheadMs >= end) { playheadMs = end; playing = false; }
-        ReplaySession.get().onPathAdvance(old, playheadMs, timeline.speed());
+        long end = timeline.contentEndMs();
+        if (!freeRun && playheadMs >= end) { playheadMs = end; playing = false; cameraOverride = true; }
     }
 
     /** Câmera forçada neste frame, se houver preview ou reprodução. */
     public Optional<CameraState> current() {
-        if (!(editorOpen || playing)) return Optional.empty();
+        if (!cameraOverride || !(editorOpen || playing || rendering)) return Optional.empty();
         return timeline.path().sample(playheadMs);
     }
 
@@ -116,7 +136,7 @@ public final class CameraDirector {
         try {
             if (!PathFiles.exists(pathsDir(), PathFiles.AUTOSAVE)) return;
             PathJson.Data d = PathFiles.read(pathsDir(), PathFiles.AUTOSAVE);
-            timeline.resetTo(d.keys(), d.speeds());
+            timeline.resetTo(d.keys(), d.speeds(), d.actors());
         } catch (Exception e) {
             System.err.println("[TimeScute] Autosave ignorado: " + e);
         }

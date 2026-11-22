@@ -16,13 +16,20 @@ public final class Timeline {
 
     public CameraPath path() { return project.path; }
     public SpeedTrack speed() { return project.speed; }
+    public ActorSet actors() { return project.actors; }
+
+    /** Id novo, único em toda a cena (keyframes, atores e reações compartilham o contador). */
+    public long newId() { return nextId++; }
+
+    /** Fim de tudo na timeline: último keyframe de câmera ou última ação de algum ator. */
+    public long contentEndMs() { return Math.max(path().lastTimeMs(), actors().endMs()); }
 
     public void onChange(Runnable r) { listeners.add(r); }
     private void fire() { listeners.forEach(Runnable::run); }
 
     /** Duração mostrada na timeline: sempre sobra espaço depois do último ponto. */
     public long durationMs() {
-        return Math.max(MIN_DURATION_MS, Math.max(path().lastTimeMs(), speed().lastTimeMs()) + 5_000);
+        return Math.max(MIN_DURATION_MS, Math.max(contentEndMs(), speed().lastTimeMs()) + 5_000);
     }
 
     // ---------- câmera ----------
@@ -105,24 +112,62 @@ public final class Timeline {
         speed().byId(id).ifPresent(k -> run(new SpeedRemove(k)));
     }
 
+    // ---------- atores ----------
+
+    /** Cria um ator vazio (sem performance ainda). */
+    public Actor addActor(String name) {
+        Actor a = Actor.create(nextId++, name);
+        run(new ActorEdit(null, a, actors().size(), "Adicionar ator"));
+        return a;
+    }
+
+    /** Troca o ator (mesmo id) pela versão nova: serve para renomear, mover, gravar, editar reações... Um passo de desfazer. */
+    public boolean updateActor(Actor after, String label) {
+        Optional<Actor> before = actors().byId(after.id());
+        if (before.isEmpty() || before.get().equals(after)) return false;
+        run(new ActorEdit(before.get(), after, actors().indexOf(after.id()), label));
+        return true;
+    }
+
+    public boolean updateActor(Actor after) { return updateActor(after, "Editar ator"); }
+
+    public void removeActor(long id) {
+        Optional<Actor> before = actors().byId(id);
+        before.ifPresent(a -> run(new ActorEdit(a, null, actors().indexOf(id), "Remover ator")));
+    }
+
     // ---------- projeto inteiro ----------
 
     /** Troca todo o conteúdo (abrir arquivo / novo). É desfazível. */
     public void replaceAll(List<Keyframe> keys, List<SpeedKey> speeds, String label) {
-        for (Keyframe k : keys) nextId = Math.max(nextId, k.id() + 1);
-        for (SpeedKey k : speeds) nextId = Math.max(nextId, k.id() + 1);
-        run(new Replace(List.copyOf(path().all()), List.copyOf(speed().all()),
-                List.copyOf(keys), List.copyOf(speeds), label));
+        replaceAll(keys, speeds, List.of(), label);
     }
 
-    public void clear() { replaceAll(List.of(), List.of(), "Novo trajeto"); }
+    public void replaceAll(List<Keyframe> keys, List<SpeedKey> speeds, List<Actor> actors, String label) {
+        bumpIds(keys, speeds, actors);
+        run(new Replace(List.copyOf(path().all()), List.copyOf(speed().all()), List.copyOf(actors().all()),
+                List.copyOf(keys), List.copyOf(speeds), List.copyOf(actors), label));
+    }
 
-    /** Carrega conteúdo sem criar passo de desfazer e zera o histórico (ex.: restaurar a sessão anterior). */
-    public void resetTo(List<Keyframe> keys, List<SpeedKey> speeds) {
+    public void clear() { replaceAll(List.of(), List.of(), List.of(), "Nova cena"); }
+
+    private void bumpIds(List<Keyframe> keys, List<SpeedKey> speeds, List<Actor> actors) {
         for (Keyframe k : keys) nextId = Math.max(nextId, k.id() + 1);
         for (SpeedKey k : speeds) nextId = Math.max(nextId, k.id() + 1);
+        for (Actor a : actors) {
+            nextId = Math.max(nextId, a.id() + 1);
+            for (Reaction r : a.reactions()) nextId = Math.max(nextId, r.id() + 1);
+        }
+    }
+
+    /** Carrega conteúdo sem criar passo de desfazer e zera o histórico (ex.: restaurar a sessão anterior). */
+    public void resetTo(List<Keyframe> keys, List<SpeedKey> speeds) { resetTo(keys, speeds, List.of()); }
+
+    public void resetTo(List<Keyframe> keys, List<SpeedKey> speeds, List<Actor> actors) {
+        bumpIds(keys, speeds, actors);
         project.path.clear(); project.path.putAll(keys);
         project.speed.clear(); project.speed.putAll(speeds);
+        project.actors.clear(); project.actors.putAll(actors);
         undo.clear();
         redo.clear();
         fire();
@@ -209,13 +254,28 @@ public final class Timeline {
         public String label() { return "Remover ponto de velocidade"; }
     }
 
-    private record Replace(List<Keyframe> oldKeys, List<SpeedKey> oldSpeed,
-                           List<Keyframe> newKeys, List<SpeedKey> newSpeed, String label) implements Command {
-        private static void set(Project p, List<Keyframe> ks, List<SpeedKey> ss) {
+    /** Adiciona (before == null), remove (after == null) ou troca um ator; lembra a posição para o desfazer. */
+    private record ActorEdit(Actor before, Actor after, int index, String label) implements Command {
+        public void apply(Project p) {
+            if (after == null) p.actors.remove(before.id());
+            else if (before == null) p.actors.insert(index, after);
+            else p.actors.put(after);
+        }
+        public void revert(Project p) {
+            if (before == null) p.actors.remove(after.id());
+            else if (after == null) p.actors.insert(index, before);
+            else p.actors.put(before);
+        }
+    }
+
+    private record Replace(List<Keyframe> oldKeys, List<SpeedKey> oldSpeed, List<Actor> oldActors,
+                           List<Keyframe> newKeys, List<SpeedKey> newSpeed, List<Actor> newActors, String label) implements Command {
+        private static void set(Project p, List<Keyframe> ks, List<SpeedKey> ss, List<Actor> as) {
             p.path.clear(); p.path.putAll(ks);
             p.speed.clear(); p.speed.putAll(ss);
+            p.actors.clear(); p.actors.putAll(as);
         }
-        public void apply(Project p) { set(p, newKeys, newSpeed); }
-        public void revert(Project p) { set(p, oldKeys, oldSpeed); }
+        public void apply(Project p) { set(p, newKeys, newSpeed, newActors); }
+        public void revert(Project p) { set(p, oldKeys, oldSpeed, oldActors); }
     }
 }

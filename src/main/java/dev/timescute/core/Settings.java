@@ -5,19 +5,31 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.Map;
 
-/** Configurações do TimeScute (arquivo settings.json). Nunca falha ao carregar: usa os padrões. */
+/** Configurações do TimeScute (settings.json). Nunca falha ao carregar: usa os padrões. */
 public final class Settings {
-    public boolean autoRecord = true;
-    public boolean recordSingleplayer = true;
-    public boolean thumbnails = true;
-    public int compressionLevel = 3;   // 1..9
-    public int minFreeMb = 512;        // para a gravação se sobrar menos que isso
-    public int maxBacklogMb = 256;     // fila máxima na memória
+    // renderização de vídeo
+    public String ffmpegPath = "";     // vazio = procura no PATH
+    public String renderPreset = RenderPreset.PADRAO.id;
+    public int renderFps = 30;
+    public int renderHeight = 0;       // 0 = tamanho da janela
+    /** Em um jogador, congela o servidor durante a renderização para o vídeo sair exato. */
+    public boolean freezeWorld = true;
+
+    public static final int[] FPS_CHOICES = {24, 30, 48, 60};
+    public static final int[] HEIGHT_CHOICES = {0, 480, 720, 1080, 1440, 2160};
 
     public void clamp() {
-        compressionLevel = Math.max(1, Math.min(9, compressionLevel));
-        minFreeMb = Math.max(0, Math.min(1_000_000, minFreeMb));
-        maxBacklogMb = Math.max(16, Math.min(4096, maxBacklogMb));
+        renderFps = nearest(FPS_CHOICES, renderFps);
+        renderHeight = nearest(HEIGHT_CHOICES, renderHeight);
+        renderPreset = RenderPreset.byId(renderPreset).id;
+        if (ffmpegPath == null) ffmpegPath = "";
+        ffmpegPath = ffmpegPath.trim();
+    }
+
+    private static int nearest(int[] choices, int v) {
+        int best = choices[0];
+        for (int c : choices) if (Math.abs(c - v) < Math.abs(best - v)) best = c;
+        return best;
     }
 
     @SuppressWarnings("unchecked")
@@ -28,12 +40,11 @@ public final class Settings {
             Object root = Json.parse(Files.readString(file, StandardCharsets.UTF_8));
             if (root instanceof Map<?, ?> m0) {
                 Map<String, Object> m = (Map<String, Object>) m0;
-                s.autoRecord = bool(m, "autoRecord", s.autoRecord);
-                s.recordSingleplayer = bool(m, "recordSingleplayer", s.recordSingleplayer);
-                s.thumbnails = bool(m, "thumbnails", s.thumbnails);
-                s.compressionLevel = num(m, "compressionLevel", s.compressionLevel);
-                s.minFreeMb = num(m, "minFreeMb", s.minFreeMb);
-                s.maxBacklogMb = num(m, "maxBacklogMb", s.maxBacklogMb);
+                s.ffmpegPath = m.get("ffmpegPath") instanceof String f ? f : s.ffmpegPath;
+                s.renderPreset = m.get("renderPreset") instanceof String r ? r : s.renderPreset;
+                s.renderFps = m.get("renderFps") instanceof Double d ? (int) Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, d)) : s.renderFps;
+                s.renderHeight = m.get("renderHeight") instanceof Double d ? (int) Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, d)) : s.renderHeight;
+                s.freezeWorld = m.get("freezeWorld") instanceof Boolean b ? b : s.freezeWorld;
             }
         } catch (IOException | IllegalArgumentException e) {
             return new Settings();
@@ -46,12 +57,11 @@ public final class Settings {
         clamp();
         if (file.getParent() != null) Files.createDirectories(file.getParent());
         String json = "{\n"
-                + "  \"autoRecord\": " + autoRecord + ",\n"
-                + "  \"recordSingleplayer\": " + recordSingleplayer + ",\n"
-                + "  \"thumbnails\": " + thumbnails + ",\n"
-                + "  \"compressionLevel\": " + compressionLevel + ",\n"
-                + "  \"minFreeMb\": " + minFreeMb + ",\n"
-                + "  \"maxBacklogMb\": " + maxBacklogMb + "\n"
+                + "  \"ffmpegPath\": " + Json.quote(ffmpegPath) + ",\n"
+                + "  \"renderPreset\": " + Json.quote(renderPreset) + ",\n"
+                + "  \"renderFps\": " + renderFps + ",\n"
+                + "  \"renderHeight\": " + renderHeight + ",\n"
+                + "  \"freezeWorld\": " + freezeWorld + "\n"
                 + "}\n";
         Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
         Files.writeString(tmp, json, StandardCharsets.UTF_8);
@@ -61,16 +71,4 @@ public final class Settings {
             Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
         }
     }
-
-    public ReplayWriter.Options writerOptions() {
-        clamp();
-        ReplayWriter.Options o = new ReplayWriter.Options();
-        o.level = compressionLevel;
-        o.minFreeBytes = minFreeMb * 1024L * 1024L;
-        o.maxBacklogBytes = maxBacklogMb * 1024L * 1024L;
-        return o;
-    }
-
-    private static boolean bool(Map<String, Object> m, String k, boolean def) { return m.get(k) instanceof Boolean b ? b : def; }
-    private static int num(Map<String, Object> m, String k, int def) { return m.get(k) instanceof Double d ? (int) Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, d)) : def; }
 }

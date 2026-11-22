@@ -40,7 +40,9 @@ public final class SpeedTrack {
         return Optional.empty();
     }
 
-    public double speedAt(long ms) {
+    public double speedAt(long ms) { return speedAt((double) ms); }
+
+    public double speedAt(double ms) {
         if (keys.isEmpty()) return 1.0;
         SpeedKey first = keys.get(0), last = keys.get(keys.size() - 1);
         if (ms <= first.timeMs()) return first.speed();
@@ -48,17 +50,22 @@ public final class SpeedTrack {
         int i = 0;
         while (keys.get(i + 1).timeMs() <= ms) i++;
         SpeedKey a = keys.get(i), b = keys.get(i + 1);
-        double u = (double) (ms - a.timeMs()) / (b.timeMs() - a.timeMs());
+        double u = (ms - a.timeMs()) / (b.timeMs() - a.timeMs());
         return a.speed() + (b.speed() - a.speed()) * u;
     }
 
-    /** Tempo do replay (ms) correspondente ao instante {@code outputMs} da timeline: integral exata da velocidade. */
-    public double replayTimeAt(long outputMs) {
+    public double replayTimeAt(long outputMs) { return replayTimeAt((double) outputMs); }
+
+    /**
+     * Tempo do replay (ms) correspondente ao instante {@code outputMs} da timeline: integral exata da velocidade.
+     * Aceita tempos fracionários (a renderização usa quadros que não caem em milissegundos inteiros).
+     */
+    public double replayTimeAt(double outputMs) {
         if (outputMs <= 0) return 0;
         if (keys.isEmpty()) return outputMs;
         double total = 0;
-        long prevT = 0;
-        double prevV = speedAt(0);
+        double prevT = 0;
+        double prevV = speedAt(0.0);
         for (SpeedKey k : keys) {
             if (k.timeMs() <= 0) continue;
             if (k.timeMs() >= outputMs) break;

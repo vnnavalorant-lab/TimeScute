@@ -1,14 +1,8 @@
 {
   "key.timescute.open": "Abrir editor de timeline",
   "key.timescute.capture": "Capturar keyframe na posição atual",
-  "key.timescute.play": "Reproduzir / pausar trajeto de câmera",
-  "key.timescute.record": "Finalizar gravação do replay",
-  "key.timescute.marker": "Adicionar marcador ao replay",
-  "key.timescute.replays": "Lista de replays / controles do replay",
-  "key.timescute.replay_pause": "Replay: pausar / continuar",
-  "key.timescute.replay_back": "Replay: voltar 5 s (Shift: 30 s)",
-  "key.timescute.replay_forward": "Replay: avançar 5 s (Shift: 30 s)",
-  "key.timescute.speed_down": "Replay: diminuir velocidade",
-  "key.timescute.speed_up": "Replay: aumentar velocidade",
+  "key.timescute.play": "Reproduzir / pausar a cena",
+  "key.timescute.record": "Gravar ator / parar gravação",
+  "key.timescute.render": "Renderizar trajeto para vídeo",
   "category.timescute": "TimeScute"
 }

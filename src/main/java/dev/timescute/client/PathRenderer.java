@@ -21,7 +21,7 @@ public final class PathRenderer {
     private static void render(WorldRenderContext ctx) {
         CameraDirector d = CameraDirector.get();
         var path = d.timeline.path();
-        if (!d.showGuides() || path.isEmpty() || d.isPlaying()) return;
+        if (!d.showGuides() || path.isEmpty() || d.isPlaying() || d.isRendering()) return; // guias nunca entram no vídeo
         if (!(ctx.consumers() instanceof VertexConsumerProvider.Immediate imm)) return;
 
         MatrixStack.Entry entry = ctx.matrixStack().peek();

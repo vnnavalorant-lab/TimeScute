@@ -44,6 +44,7 @@ public final class TimelineScreen extends Screen {
     private final Selection sel = dir.selection;
     private final TimelineView view = new TimelineView();
     private final List<Btn> buttons = new ArrayList<>();
+    private final ActorLanes lanes = new ActorLanes(host());
     private boolean snap = true;
     private boolean speedOn = false;
     private boolean needsFit = true;
@@ -94,12 +95,13 @@ public final class TimelineScreen extends Screen {
 
     // ================= geometria =================
 
-    private int panelH() { return BASE_PANEL_H + ROW_STEP * (toolbarRows - 1) + (speedOn ? SPEED_H : 0); }
+    private int panelH() { return BASE_PANEL_H + ROW_STEP * (toolbarRows - 1) + lanes.height() + (speedOn ? SPEED_H : 0); }
     private int panelY() { return height - panelH(); }
     private int toolbarY(int row) { return panelY() + 7 + row * ROW_STEP; }
     private int rulerY() { return panelY() + 10 + toolbarRows * ROW_STEP; }
     private int laneY() { return rulerY() + RULER_H; }
-    private int speedY() { return laneY() + LANE_H; }
+    private int actorsY() { return laneY() + LANE_H; }
+    private int speedY() { return actorsY() + lanes.height(); }
     private int lanesBottom() { return speedY() + (speedOn ? SPEED_H : 0); }
     private int inspY() { return lanesBottom() + 8; }
     private int x0() { return GUTTER; }
@@ -173,12 +175,12 @@ public final class TimelineScreen extends Screen {
         flowX = PAD;
         flowRow = 0;
         BooleanSupplier always = () -> true, never = () -> false;
-        BooleanSupplier hasKeys = () -> !tl.path().isEmpty();
+        BooleanSupplier hasContent = () -> tl.contentEndMs() > 0; // câmera OU atores
 
         flow(new Btn(() -> "Início", () -> { dir.pause(); dir.setPlayhead(0); view.follow(0); },
                 always, never, () -> "Volta o playhead ao começo (Home)"), 0, 4);
         flow(new Btn(() -> dir.isPlaying() ? "Pausar" : "Play", dir::togglePlay,
-                hasKeys, dir::isPlaying, () -> "Reproduz o trajeto (Espaço)"), 56, 4);
+                hasContent, dir::isPlaying, () -> "Reproduz o trajeto (Espaço)"), 56, 4);
         flow(new Btn(() -> "Capturar", this::captureHere, always, never,
                 () -> "Cria um keyframe com a câmera atual, no playhead (K)"), 0, 10);
         flow(new Btn(() -> "Desfazer", tl::undo, tl::canUndo, never,
@@ -189,10 +191,17 @@ public final class TimelineScreen extends Screen {
                 () -> "Alinha keyframes à grade e velocidades a 0.25x/0.5x/1x/2x/4x"), 0, 4);
         flow(new Btn(() -> "Guias", dir::toggleGuides, always, dir::showGuides,
                 () -> "Mostra o trajeto e as câmeras no mundo 3D"), 0, 4);
-        flow(new Btn(() -> "Velocidade", () -> { speedOn = !speedOn; buildButtons(); }, always, () -> speedOn,
-                () -> "Mostra a trilha de velocidade (câmera lenta/rápida)"), 0, 4);
         flow(new Btn(() -> "Ajustar", () -> view.fit(tl.durationMs()), always, never,
                 () -> "Enquadra a timeline inteira"), 0, 10);
+        flow(new Btn(() -> "Atores", () -> client.setScreen(new ActorsScreen(this)), always, never,
+                () -> "Cria, renomeia, troca a pele e apaga atores"), 0, 4);
+        flow(new Btn(() -> ActorRecorder.get().isBusy() ? "Parar" : "Gravar", () -> ActorRecorder.get().toggle(client), always,
+                () -> ActorRecorder.get().isBusy(),
+                () -> "Grava a SUA performance para o ator selecionado repetir (F8)"), 0, 4);
+        flow(new Btn(() -> "+ Reação", this::addReactionAndEdit, always, never,
+                () -> "Cria uma reação (animação, golpe, item, olhar) no ponto de reprodução, para o ator selecionado"), 0, 4);
+        flow(new Btn(() -> "Editar", this::editSelectedReaction, () -> lanes.selectedReaction().isPresent(), never,
+                () -> "Edita a reação selecionada (Enter ou botão direito no bloco)"), 0, 10);
         flow(new Btn(() -> "Novo", this::newPath, always, never,
                 () -> "Começa um trajeto vazio (Ctrl+N; dá para desfazer)"), 0, 4);
         flow(new Btn(() -> "Abrir", this::openDialog, always, never,
@@ -200,6 +209,8 @@ public final class TimelineScreen extends Screen {
         flow(new Btn(() -> "Salvar", () -> save(false), always, never,
                 () -> dir.pathName() == null ? "Salva o trajeto (Ctrl+S)"
                         : "Salva em \"" + dir.pathName() + "\" (Ctrl+S). Salvar como: Ctrl+Shift+S"), 0, 4);
+        flow(new Btn(() -> "Renderizar", () -> client.setScreen(new RenderScreen(this)), always, never,
+                () -> "Renderiza o trajeto para vídeo (precisa de 2 keyframes de câmera e do FFmpeg)"), 0, 4);
         toolbarRows = flowRow + 1;
 
         // interpolação: alinhada à direita, na linha do inspetor
@@ -264,6 +275,34 @@ public final class TimelineScreen extends Screen {
         }
     }
 
+    private ActorLanes.Host host() {
+        return new ActorLanes.Host() {
+            public int x0() { return TimelineScreen.this.x0(); }
+            public int x1() { return TimelineScreen.this.x1(); }
+            public int width() { return TimelineScreen.this.width; }
+            public int top() { return actorsY(); }
+            public int sx(long ms) { return TimelineScreen.this.sx(ms); }
+            public long msAt(double screenX) { return view.msAt(screenX - x0()); }
+            public long snapMs(long ms) { return view.snap(ms, snap); }
+            public net.minecraft.client.font.TextRenderer font() { return textRenderer; }
+            public void scrubTo(double screenX) { TimelineScreen.this.scrubTo(screenX); }
+            public void clearKeySelection() { sel.clear(); selSpeed = null; }
+            public void openReaction(long actorId, long reactionId) { client.setScreen(new ReactionScreen(TimelineScreen.this, actorId, reactionId)); }
+        };
+    }
+
+    private boolean editSelectedReaction() {
+        Optional<Reaction> r = lanes.selectedReaction();
+        if (r.isEmpty()) return false;
+        client.setScreen(new ReactionScreen(this, lanes.selectedActor().get().id(), r.get().id()));
+        return true;
+    }
+
+    private void addReactionAndEdit() {
+        if (tl.actors().isEmpty()) { dir.toast("Crie um ator primeiro (botão Atores)", true); return; }
+        lanes.addAtPlayhead(dir.playheadMs()).ifPresent(r -> client.setScreen(new ReactionScreen(this, lanes.selectedActor().get().id(), r.id())));
+    }
+
     private void jumpToKeyframe(int direction) {
         long now = dir.playheadMs();
         Keyframe target = null;
@@ -310,6 +349,7 @@ public final class TimelineScreen extends Screen {
         tooltip = drawToolbar(ctx, mx, my, tooltip);
         drawRuler(ctx);
         tooltip = drawLane(ctx, mx, my, tooltip);
+        tooltip = lanes.draw(ctx, mx, my, tooltip);
         if (speedOn) tooltip = drawSpeedLane(ctx, mx, my, tooltip);
         tooltip = drawInspector(ctx, mx, my, tooltip);
         drawPlayhead(ctx);
@@ -324,7 +364,7 @@ public final class TimelineScreen extends Screen {
             ctx.drawTextWithShadow(textRenderer, dir.toastText(), PAD, fy, dir.toastIsError() ? ERROR : ACCENT);
         } else {
             ctx.drawTextWithShadow(textRenderer,
-                    "K capturar | Espaço play | Del apagar | Ctrl+Z desfaz | Ctrl+S salva | Roda zoom | Shift+Roda rola | Botão dir.: interpolação",
+                    "K capturar | Espaço play | F8 gravar ator | Duplo clique na faixa do ator: reação | Del apaga | Ctrl+D duplica | Ctrl+Z desfaz",
                     PAD, fy, DISABLED);
         }
     }
@@ -332,7 +372,7 @@ public final class TimelineScreen extends Screen {
     private List<Text> drawToolbar(DrawContext ctx, int mx, int my, List<Text> tip) {
         for (Btn b : buttons) if (b.group == 0) tip = drawButton(ctx, b, mx, my, tip);
         String time = TimelineView.format(dir.playheadMs());
-        if (width >= 700) time += " / " + TimelineView.format(tl.path().lastTimeMs());
+        if (width >= 700) time += " / " + TimelineView.format(tl.contentEndMs());
         ctx.drawTextWithShadow(textRenderer, time, width - PAD - textRenderer.getWidth(time), toolbarY(0) + 5, TEXT);
         String name = dir.pathName() == null ? "(sem nome)" : dir.pathName();
         if (toolbarRows == 1 && width >= 1000)
@@ -509,7 +549,10 @@ public final class TimelineScreen extends Screen {
         int y = inspY();
         String info;
         boolean dim = false;
-        if (selSpeed != null) {
+        String actorInfo = sel.isEmpty() && selSpeed == null ? lanes.info() : null;
+        if (actorInfo != null) {
+            info = actorInfo;
+        } else if (selSpeed != null) {
             info = tl.speed().byId(selSpeed)
                     .map(k -> String.format(Locale.ROOT, "Ponto de velocidade: %.2fx em %s", k.speed(), TimelineView.format(k.timeMs())))
                     .orElse("");
@@ -553,6 +596,11 @@ public final class TimelineScreen extends Screen {
                 }
         }
 
+        if (lanes.contains(mx, my)) { // faixas dos atores
+            if (button == 2 && inTimelineX(mx)) { startX = curX = mx; startY = curY = my; mode = Mode.PAN; return true; }
+            if ((button == 0 || button == 1) && lanes.click(mx, my, button)) return true;
+        }
+
         boolean overRuler = inRuler(mx, my), overLane = inLane(mx, my), overSpeed = inSpeed(mx, my);
         if (!overRuler && !overLane && !overSpeed) return super.mouseClicked(mx, my, button);
 
@@ -567,6 +615,7 @@ public final class TimelineScreen extends Screen {
         if (overSpeed) return clickSpeed(mx, my, button);
 
         // ----- faixa da câmera -----
+        lanes.clearSelection();
         Optional<Keyframe> hit = view.hit(tl.path(), mx - x0(), KEY_R + 3);
 
         if (button == 1) { // botão direito: troca a interpolação
@@ -651,6 +700,7 @@ public final class TimelineScreen extends Screen {
     public boolean mouseDragged(double mx, double my, int button, double dx, double dy) {
         curX = mx;
         curY = my;
+        if (lanes.dragging()) { lanes.drag(mx); return true; }
         switch (mode) {
             case SCRUB -> scrubTo(mx);
             case PAN -> view.panPx(dx);
@@ -673,6 +723,7 @@ public final class TimelineScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mx, double my, int button) {
+        if (lanes.dragging()) { lanes.release(); return true; }
         switch (mode) {
             case KEYS -> {
                 if (dragDelta != 0 && dragValid) tl.move(sel.ids(), dragDelta);
@@ -704,6 +755,7 @@ public final class TimelineScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mx, double my, double amount) {
+        if (lanes.wheel(mx, my, amount)) return true;
         if (!inTimelineX(mx) || my < rulerY() || my > lanesBottom()) return super.mouseScrolled(mx, my, amount);
         if (hasShiftDown()) view.panPx(amount * 48);
         else view.zoomAt(amount > 0 ? 1.2 : 1 / 1.2, mx - x0());
@@ -717,9 +769,14 @@ public final class TimelineScreen extends Screen {
         boolean ctrl = hasControlDown(), shift = hasShiftDown();
         switch (key) {
             case GLFW.GLFW_KEY_SPACE -> dir.togglePlay();
-            case GLFW.GLFW_KEY_K, GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> captureHere();
+            case GLFW.GLFW_KEY_K, GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> {
+                if (key != GLFW.GLFW_KEY_K && editSelectedReaction()) break; // Enter edita a reação selecionada
+                captureHere();
+            }
+            case GLFW.GLFW_KEY_D -> { if (!ctrl) return super.keyPressed(key, scan, mods); lanes.duplicateSelected(); }
             case GLFW.GLFW_KEY_DELETE, GLFW.GLFW_KEY_BACKSPACE -> {
-                if (selSpeed != null) { tl.removeSpeed(selSpeed); selSpeed = null; }
+                if (lanes.deleteSelected()) { /* reação removida */ }
+                else if (selSpeed != null) { tl.removeSpeed(selSpeed); selSpeed = null; }
                 else { tl.remove(new HashSet<>(sel.ids())); sel.clear(); }
             }
             case GLFW.GLFW_KEY_Z -> { if (!ctrl) return super.keyPressed(key, scan, mods); if (shift) tl.redo(); else tl.undo(); }
@@ -735,7 +792,7 @@ public final class TimelineScreen extends Screen {
                 selSpeed = null;
             }
             case GLFW.GLFW_KEY_HOME -> { dir.pause(); dir.setPlayhead(0); view.follow(0); }
-            case GLFW.GLFW_KEY_END -> { dir.pause(); dir.setPlayhead(tl.path().lastTimeMs()); view.follow(dir.playheadMs()); }
+            case GLFW.GLFW_KEY_END -> { dir.pause(); dir.setPlayhead(tl.contentEndMs()); view.follow(dir.playheadMs()); }
             case GLFW.GLFW_KEY_LEFT -> { if (shift) { dir.pause(); dir.setPlayhead(dir.playheadMs() - 100); } else jumpToKeyframe(-1); }
             case GLFW.GLFW_KEY_RIGHT -> { if (shift) { dir.pause(); dir.setPlayhead(dir.playheadMs() + 100); } else jumpToKeyframe(1); }
             default -> { return super.keyPressed(key, scan, mods); }
